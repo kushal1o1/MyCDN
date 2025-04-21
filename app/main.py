@@ -1,11 +1,17 @@
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 import os
 from typing import Optional
 from .config import settings
+import secrets
+from datetime import datetime, timedelta
 
 app = FastAPI(title="Personal CDN Service")
+
+# Store active sessions
+active_sessions = {}
 
 # Configure CORS
 app.add_middleware(
@@ -16,29 +22,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def verify_api_key(api_key: Optional[str] = Header(None, alias="x-api-key")):
+api_key_header = APIKeyHeader(name="x-api-key")
+
+@app.post("/auth")
+async def authenticate(request: Request, api_key: str = Header(None, alias="x-api-key")):
     if not api_key or api_key != settings.API_KEY:
         raise HTTPException(
             status_code=403,
             detail="Invalid or missing API key"
+        )
+    
+    # Generate a session token
+    session_token = secrets.token_urlsafe(32)
+    # Store session with expiration (1 hour)
+    active_sessions[session_token] = {
+        "expires": datetime.now() + timedelta(hours=1),
+        "origin": request.headers.get("origin")
+    }
+    
+    return {"session_token": session_token}
+
+def verify_session(session_token: str, origin: str):
+    if session_token not in active_sessions:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid session"
+        )
+    
+    session = active_sessions[session_token]
+    if datetime.now() > session["expires"]:
+        del active_sessions[session_token]
+        raise HTTPException(
+            status_code=403,
+            detail="Session expired"
+        )
+    
+    if origin and origin not in settings.ALLOWED_ORIGINS:
+        raise HTTPException(
+            status_code=403,
+            detail="Origin not allowed"
         )
 
 @app.get("/cdn/{filename}")
 async def serve_image(
     filename: str,
     request: Request,
-    api_key: Optional[str] = Header(None, alias="x-api-key")
+    session_token: Optional[str] = Header(None, alias="x-session-token")
 ):
-    # Verify API key
-    verify_api_key(api_key)
-    
-    # Verify origin
-    origin = request.headers.get("origin")
-    if origin and origin not in settings.ALLOWED_ORIGINS:
-        raise HTTPException(
-            status_code=403,
-            detail="Origin not allowed"
-        )
+    # Verify session
+    verify_session(session_token, request.headers.get("origin"))
     
     # Construct file path
     file_path = os.path.join(settings.IMAGE_DIR, filename)
