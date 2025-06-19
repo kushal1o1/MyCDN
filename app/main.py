@@ -109,10 +109,21 @@ async def login_page(request: Request):
     """Render login page"""
     return templates.TemplateResponse("login.html", {"request": request})
 
+COOKIE_NAME = "session"
+COOKIE_VALUE = secrets.token_urlsafe(16)  # Random value for this server instance
+
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, credentials: HTTPBasicCredentials = Depends(verify_admin_auth)):
-    """Admin dashboard for image management - only accessible when authenticated"""
+async def dashboard(request: Request):
+    session_cookie = request.cookies.get(COOKIE_NAME)
+    if session_cookie != COOKIE_VALUE:
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie(COOKIE_NAME)
+    return response
 
 @app.get("/api/images")
 async def list_images(credentials: HTTPBasicCredentials = Depends(verify_admin_auth)) -> List[str]:
@@ -193,13 +204,27 @@ async def authenticate(request: Request, api_key: str = Header(None, alias="x-ap
         )
 
 @app.post("/api/auth/login")
-async def login(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
-    """Handle login form submission"""
-    try:
-        await verify_admin_auth(credentials)
-        return RedirectResponse(url="/dashboard", status_code=303)
-    except HTTPException:
-        return RedirectResponse(url="/login", status_code=303)
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    is_correct_username = secrets.compare_digest(
+        username.encode("utf8"),
+        settings.ADMIN_USERNAME.encode("utf8"),
+    )
+    is_correct_password = secrets.compare_digest(
+        password.encode("utf8"),
+        settings.ADMIN_PASSWORD.encode("utf8"),
+    )
+    if is_correct_username and is_correct_password:
+        response = RedirectResponse(url="/dashboard", status_code=303)
+        response.set_cookie(
+            key=COOKIE_NAME,
+            value=COOKIE_VALUE,
+            httponly=True,
+            max_age=60*60*2,  # 2 hours
+            samesite="lax"
+        )
+        return response
+    else:
+        return RedirectResponse(url="/login?error=1", status_code=303)
 
 @app.get("/cdn/{filename}")
 async def serve_image(

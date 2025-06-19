@@ -14,6 +14,13 @@
             <p>Sign in to manage your images</p>
         </div>
 
+        {% if request.query_params.get('error') == '1' %}
+        <div class="error-message show" id="error-message">
+            <i-lucide data-icon="alert-circle"></i-lucide>
+            <span>Invalid username or password</span>
+        </div>
+        {% endif %}
+
         <form id="login-form" method="post" action="/api/auth/login">
             <div class="form-group">
                 <label for="username">Username</label>
