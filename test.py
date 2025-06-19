@@ -26,7 +26,7 @@ def test_cdn():
         
         # Step 2: Try to fetch an image
         image_response = requests.get(
-            f"{CDN_URL}/cdn/eyeLogo.jpg",
+            f"{CDN_URL}/cdn/defaultpp.png",
             headers={
                 "x-session-token": session_token,
                 "Origin": ORIGIN

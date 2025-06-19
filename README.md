@@ -5,6 +5,9 @@ A secure CDN service built with FastAPI that serves static images with authentic
 ## Features
 
 - Secure image serving with session-based authentication
+- Public/private image categories with separate folders
+- Dashboard with tabs for public and private images
+- Category-aware upload and delete
 - CORS protection for specific domains
 - Support for various image formats (JPEG, PNG, SVG, GIF, WebP)
 - Proper error handling (403 for invalid/missing session, 404 for missing images)
@@ -47,145 +50,56 @@ API_KEY=your-secret-key-here
 ALLOWED_ORIGINS=["https://my-portfolio.com", "http://localhost:3000"]
 ```
 
-5. Place your images in the `app/images` directory
+5. Create the image folders:
+```bash
+mkdir -p app/images/public app/images/private
+```
 
 6. Run the server:
 ```bash
 uvicorn app.main:app --reload
 ```
 
-## Troubleshooting
-
-If you encounter a "No module named 'fastapi'" error:
-1. Make sure you're in the virtual environment
-2. Run `pip install -r requirements.txt` again
-3. Verify the installation with `pip list | findstr fastapi` (Windows) or `pip list | grep fastapi` (Linux/Mac)
-
 ## Usage
+
+### Dashboard
+- Upload images as either **public** or **private** using the category selector.
+- Switch between **Public** and **Private** tabs to view/manage images in each category.
+- Public images are accessible by anyone at `/images/public/<filename>`.
+- Private images are only accessible via `/cdn/<filename>` and require authentication.
 
 ### Backend API
 
-1. First, authenticate to get a session token:
+#### Upload Image
 ```
-POST /auth
-Headers:
-- x-api-key: your-secret-key-here
-- Origin: http://localhost:3000
+POST /api/upload
+Form Data:
+- file: (image file)
+- category: public | private
+```
 
-Response:
+#### List Images
+```
+GET /api/images
+Returns:
 {
-    "session_token": "your-session-token"
+  "public": ["img1.jpg", ...],
+  "private": ["img2.jpg", ...]
 }
 ```
 
-2. Use the session token to access images:
+#### Delete Image
 ```
-GET /cdn/{filename}
-Headers:
-- x-session-token: your-session-token
-- Origin: http://localhost:3000
+DELETE /api/images/{category}/{filename}
 ```
 
-### React Integration
-
-1. Create a CDN utility file:
-```jsx
-// utils/cdn.js
-let cdnToken = null;
-let tokenExpiry = null;
-
-export const initializeCDN = async () => {
-  try {
-    if (!cdnToken || Date.now() > tokenExpiry) {
-      const response = await fetch('http://localhost:8000/auth', {
-        method: 'POST',
-        headers: {
-          'x-api-key': 'your-secret-key-here',
-          'Origin': 'http://localhost:3000',
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error('CDN authentication failed');
-      }
-
-      const { session_token } = await response.json();
-      cdnToken = session_token;
-      tokenExpiry = Date.now() + 55 * 60 * 1000;
-    }
-    
-    return cdnToken;
-  } catch (error) {
-    console.error('Error initializing CDN:', error);
-    throw error;
-  }
-};
-
-export const getCDNUrl = async (filename) => {
-  const token = await initializeCDN();
-  return `http://localhost:8000/cdn/${filename}?token=${token}`;
-};
+#### Serve Public Image
+```
+GET /images/public/<filename>
 ```
 
-2. Use it in your components:
-```jsx
-import { useEffect, useState } from 'react';
-import { getCDNUrl } from '../utils/cdn';
-
-const MyComponent = () => {
-  const [imageUrls, setImageUrls] = useState([]);
-
-  useEffect(() => {
-    const loadImages = async () => {
-      try {
-        const images = item.images || [];
-        const urls = await Promise.all(
-          images.map(async (imageName) => {
-            return await getCDNUrl(imageName);
-          })
-        );
-        setImageUrls(urls);
-      } catch (error) {
-        console.error('Error loading images:', error);
-      }
-    };
-
-    loadImages();
-  }, [item.images]);
-
-  return (
-    <div>
-      {imageUrls.map((url, index) => (
-        <img 
-          key={index}
-          src={url} 
-          alt={`Image ${index + 1}`} 
-          style={{ maxWidth: '100%', height: 'auto' }}
-        />
-      ))}
-    </div>
-  );
-};
+#### Serve Private Image (requires session)
+```
+GET /cdn/<filename>
 ```
 
-## Deployment
-
-This service can be deployed on Render or any other hosting platform that supports Python applications. Make sure to:
-
-1. Set up the environment variables in your hosting platform
-2. Configure the allowed origins
-3. Ensure the `app/images` directory is writable
-4. Set up proper SSL/TLS for secure connections
-5. Update the frontend URLs to point to your production domain
-
-## Security Notes
-
-- Keep your API key secure and never commit it to version control
-- Session tokens expire after 1 hour for security
-- Regularly update your dependencies
-- Monitor access logs for suspicious activity
-- Consider implementing rate limiting for additional security
-- Use environment variables for sensitive data in your frontend
-- Implement proper error handling for session expiration
