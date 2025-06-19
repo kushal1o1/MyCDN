@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CDN Login</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    {% include 'styles.html' %}
+</head>
+<body>
+    <div class="login-container">
+        <div class="header">
+            <i-lucide data-icon="image"></i-lucide>
+            <h1>CDN Admin</h1>
+            <p>Sign in to manage your images</p>
+        </div>
+
+        <form id="login-form" method="post" action="/api/auth/login">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <div class="input-group">
+                    <i-lucide data-icon="user"></i-lucide>
+                    <input type="text" id="username" name="username" class="form-input" placeholder="Enter your username" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="input-group">
+                    <i-lucide data-icon="lock"></i-lucide>
+                    <input type="password" id="password" name="password" class="form-input" placeholder="Enter your password" required>
+                </div>
+            </div>
+
+            <button type="submit" class="login-btn">
+                <i-lucide data-icon="log-in"></i-lucide>
+                Sign In
+            </button>
+        </form>
+    </div>
+
+    {% include 'scripts.html' %}
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
+</body>
+</html> 

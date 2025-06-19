@@ -1,13 +1,18 @@
-from fastapi import FastAPI, HTTPException, Header, Request, Response
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Header, Request, Response, File, UploadFile, Form, Depends, status
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader
+from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 import os
-from typing import Optional
+from typing import Optional, List
 from .config import settings
 import secrets
 from datetime import datetime, timedelta
 import logging
+import shutil
+from fastapi.templating import Jinja2Templates
+import aiofiles
+from fastapi.security.utils import get_authorization_scheme_param
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Personal CDN Service")
 
-# Store active sessions
-active_sessions = {}
+# Configure templates
+templates = Jinja2Templates(directory="app/templates")
 
 # Configure CORS
 app.add_middleware(
@@ -28,7 +33,37 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+# Security
+security = HTTPBasic()
 api_key_header = APIKeyHeader(name="x-api-key")
+
+# Create images directory if it doesn't exist
+os.makedirs(settings.IMAGE_DIR, exist_ok=True)
+
+# Mount static files
+app.mount("/images", StaticFiles(directory=settings.IMAGE_DIR), name="images")
+
+async def verify_admin_auth(credentials: HTTPBasicCredentials = Depends(security)) -> bool:
+    """Verify admin credentials"""
+    is_correct_username = secrets.compare_digest(
+        credentials.username.encode("utf8"),
+        settings.ADMIN_USERNAME.encode("utf8"),
+    )
+    is_correct_password = secrets.compare_digest(
+        credentials.password.encode("utf8"),
+        settings.ADMIN_PASSWORD.encode("utf8"),
+    )
+    
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return True
+
+# Store active sessions
+active_sessions = {}
 
 def create_session_token(origin: str) -> str:
     """Create a new session token and store it"""
@@ -64,6 +99,75 @@ def verify_session(session_token: str, origin: str) -> bool:
     
     return True
 
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Redirect to login page by default"""
+    return RedirectResponse(url="/login")
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Render login page"""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request, credentials: HTTPBasicCredentials = Depends(verify_admin_auth)):
+    """Admin dashboard for image management - only accessible when authenticated"""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@app.get("/api/images")
+async def list_images(credentials: HTTPBasicCredentials = Depends(verify_admin_auth)) -> List[str]:
+    """List all images in the CDN"""
+    try:
+        files = os.listdir(settings.IMAGE_DIR)
+        # Filter only image files
+        image_files = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp'))]
+        return image_files
+    except Exception as e:
+        logger.error(f"Error listing images: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list images")
+
+@app.post("/api/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    credentials: HTTPBasicCredentials = Depends(verify_admin_auth)
+):
+    """Upload a new image to the CDN"""
+    try:
+        # Ensure file is an image
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+
+        # Create safe filename
+        filename = file.filename
+        file_path = os.path.join(settings.IMAGE_DIR, filename)
+
+        # Save the file
+        async with aiofiles.open(file_path, 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+
+        return {"filename": filename}
+    except Exception as e:
+        logger.error(f"Error uploading file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to upload file")
+
+@app.delete("/api/images/{filename}")
+async def delete_image(
+    filename: str,
+    credentials: HTTPBasicCredentials = Depends(verify_admin_auth)
+):
+    """Delete an image from the CDN"""
+    try:
+        file_path = os.path.join(settings.IMAGE_DIR, filename)
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        os.remove(file_path)
+        return {"message": "Image deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting image: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete image")
+
 @app.post("/auth")
 async def authenticate(request: Request, api_key: str = Header(None, alias="x-api-key")):
     """Authenticate and get a session token"""
@@ -87,6 +191,15 @@ async def authenticate(request: Request, api_key: str = Header(None, alias="x-ap
             status_code=500,
             detail="Internal server error"
         )
+
+@app.post("/api/auth/login")
+async def login(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    """Handle login form submission"""
+    try:
+        await verify_admin_auth(credentials)
+        return RedirectResponse(url="/dashboard", status_code=303)
+    except HTTPException:
+        return RedirectResponse(url="/login", status_code=303)
 
 @app.get("/cdn/{filename}")
 async def serve_image(
