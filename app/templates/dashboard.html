@@ -18,11 +18,19 @@
     <div class="container">
         <div class="upload-area" onclick="document.getElementById('file-input').click()">
             <input type="file" id="file-input" accept="image/*" multiple onchange="handleFileSelect(event)">
+            <div class="category-select">
+                <label><input type="radio" name="category" value="public" checked> Public</label>
+                <label><input type="radio" name="category" value="private"> Private</label>
+            </div>
             <i-lucide data-icon="upload-cloud"></i-lucide>
             <h2>Upload Images</h2>
             <p>Click or drag and drop your images here</p>
         </div>
 
+        <div class="tabs">
+            <button class="tab-btn active" id="tab-public" onclick="showTab('public')">Public</button>
+            <button class="tab-btn" id="tab-private" onclick="showTab('private')">Private</button>
+        </div>
         <div class="image-grid" id="image-grid">
             <!-- Images will be dynamically added here -->
         </div>
@@ -33,8 +41,24 @@
         <span id="toast-message"></span>
     </div>
 
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content">
+            <i-lucide data-icon="alert-triangle"></i-lucide>
+            <h2>Delete Image</h2>
+            <p>Are you sure you want to delete <span id="modal-filename"></span>?</p>
+            <div class="modal-actions">
+                <button id="modal-cancel" class="modal-btn cancel">Cancel</button>
+                <button id="modal-confirm" class="modal-btn confirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
     {% include 'scripts.html' %}
     <script>
+        let allImages = { public: [], private: [] };
+        let currentTab = 'public';
+
         // Load images on page load
         loadImages();
 
@@ -42,33 +66,44 @@
             try {
                 const response = await fetch('/api/images');
                 if (response.ok) {
-                    const images = await response.json();
-                    const imageGrid = document.getElementById('image-grid');
-                    imageGrid.innerHTML = '';
-
-                    images.forEach(image => {
-                        const card = createImageCard(image);
-                        imageGrid.appendChild(card);
-                    });
+                    allImages = await response.json();
+                    renderImages();
                 }
             } catch (error) {
                 showToast('Failed to load images');
             }
         }
 
-        function createImageCard(image) {
+        function renderImages() {
+            const imageGrid = document.getElementById('image-grid');
+            imageGrid.innerHTML = '';
+            allImages[currentTab].forEach(image => {
+                const card = createImageCard(image, currentTab);
+                imageGrid.appendChild(card);
+            });
+        }
+
+        function showTab(tab) {
+            currentTab = tab;
+            document.getElementById('tab-public').classList.toggle('active', tab === 'public');
+            document.getElementById('tab-private').classList.toggle('active', tab === 'private');
+            renderImages();
+        }
+
+        function createImageCard(image, category) {
             const card = document.createElement('div');
             card.className = 'image-card';
+            const src = category === 'public' ? `/images/public/${image}` : `/cdn/${image}`;
             card.innerHTML = `
-                <img src="/images/${image}" alt="${image}">
+                <img src="${src}" alt="${image}">
                 <div class="image-card-footer">
                     <h3>${image}</h3>
                     <div class="image-actions">
-                        <button onclick="copyImageUrl('${image}')">
+                        <button onclick="copyImageUrl('${image}', '${category}')">
                             <i-lucide data-icon="copy"></i-lucide>
                             Copy URL
                         </button>
-                        <button onclick="deleteImage('${image}')">
+                        <button onclick="deleteImage('${image}', '${category}')">
                             <i-lucide data-icon="trash-2"></i-lucide>
                             Delete
                         </button>
@@ -80,16 +115,16 @@
 
         async function handleFileSelect(event) {
             const files = event.target.files;
+            const category = document.querySelector('input[name="category"]:checked').value;
             for (const file of files) {
                 const formData = new FormData();
                 formData.append('file', file);
-
+                formData.append('category', category);
                 try {
                     const response = await fetch('/api/upload', {
                         method: 'POST',
                         body: formData
                     });
-
                     if (response.ok) {
                         showToast(`Uploaded ${file.name}`);
                         loadImages();
@@ -103,30 +138,52 @@
             event.target.value = '';
         }
 
-        async function copyImageUrl(filename) {
-            const url = `${window.location.origin}/images/${filename}`;
+        async function copyImageUrl(filename, category) {
+            let url = '';
+            if (category === 'public') {
+                url = `${window.location.origin}/images/public/${filename}`;
+            } else {
+                url = `${window.location.origin}/cdn/${filename}`;
+            }
             await navigator.clipboard.writeText(url);
             showToast('Image URL copied to clipboard');
         }
 
-        async function deleteImage(filename) {
-            if (confirm('Are you sure you want to delete this image?')) {
-                try {
-                    const response = await fetch(`/api/images/${filename}`, {
-                        method: 'DELETE'
-                    });
+        let imageToDelete = null;
+        let deleteCategory = null;
 
-                    if (response.ok) {
-                        showToast('Image deleted successfully');
-                        loadImages();
-                    } else {
-                        showToast('Failed to delete image');
-                    }
-                } catch (error) {
+        function deleteImage(filename, category) {
+            imageToDelete = filename;
+            deleteCategory = category;
+            document.getElementById('modal-filename').textContent = filename;
+            document.getElementById('delete-modal').classList.add('show');
+        }
+
+        document.getElementById('modal-cancel').onclick = function() {
+            document.getElementById('delete-modal').classList.remove('show');
+            imageToDelete = null;
+            deleteCategory = null;
+        };
+
+        document.getElementById('modal-confirm').onclick = async function() {
+            if (!imageToDelete || !deleteCategory) return;
+            try {
+                const response = await fetch(`/api/images/${deleteCategory}/${imageToDelete}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    showToast('Image deleted successfully');
+                    loadImages();
+                } else {
                     showToast('Failed to delete image');
                 }
+            } catch (error) {
+                showToast('Failed to delete image');
             }
-        }
+            document.getElementById('delete-modal').classList.remove('show');
+            imageToDelete = null;
+            deleteCategory = null;
+        };
 
         function showToast(message) {
             const toast = document.getElementById('toast');

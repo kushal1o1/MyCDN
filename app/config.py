@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123")
     ALLOWED_ORIGINS: List[str] = ["*"]
     IMAGE_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "images")
+    PUBLIC_IMAGE_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "images", "public")
+    PRIVATE_IMAGE_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "images", "private")
     
     class Config:
         env_file = ".env"

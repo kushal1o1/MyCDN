@@ -41,7 +41,8 @@ api_key_header = APIKeyHeader(name="x-api-key")
 os.makedirs(settings.IMAGE_DIR, exist_ok=True)
 
 # Mount static files
-app.mount("/images", StaticFiles(directory=settings.IMAGE_DIR), name="images")
+app.mount("/images/public", StaticFiles(directory=os.path.join(settings.IMAGE_DIR, "public")), name="public_images")
+# Do NOT mount private images for public access
 
 async def verify_admin_auth(credentials: HTTPBasicCredentials = Depends(security)) -> bool:
     """Verify admin credentials"""
@@ -126,12 +127,15 @@ def logout():
     return response
 
 @app.get("/api/images")
-async def list_images(credentials: HTTPBasicCredentials = Depends(verify_admin_auth)) -> List[str]:
-    """List all images in the CDN"""
+async def list_images(credentials: HTTPBasicCredentials = Depends(verify_admin_auth)):
+    """List all images in public and private folders"""
     try:
-        files = os.listdir(settings.IMAGE_DIR)
-        # Filter only image files
-        image_files = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp'))]
+        public_files = os.listdir(settings.PUBLIC_IMAGE_DIR)
+        private_files = os.listdir(settings.PRIVATE_IMAGE_DIR)
+        image_files = {
+            "public": [f for f in public_files if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))],
+            "private": [f for f in private_files if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
+        }
         return image_files
     except Exception as e:
         logger.error(f"Error listing images: {str(e)}")
@@ -140,39 +144,40 @@ async def list_images(credentials: HTTPBasicCredentials = Depends(verify_admin_a
 @app.post("/api/upload")
 async def upload_image(
     file: UploadFile = File(...),
-    credentials: HTTPBasicCredentials = Depends(verify_admin_auth)
+    category: str = Form(...),
+    request: Request = None
 ):
-    """Upload a new image to the CDN"""
+    """Upload a new image to the selected folder (public/private)"""
     try:
-        # Ensure file is an image
         if not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
-
-        # Create safe filename
         filename = file.filename
-        file_path = os.path.join(settings.IMAGE_DIR, filename)
-
-        # Save the file
+        if category == "public":
+            file_path = os.path.join(settings.PUBLIC_IMAGE_DIR, filename)
+        else:
+            file_path = os.path.join(settings.PRIVATE_IMAGE_DIR, filename)
         async with aiofiles.open(file_path, 'wb') as out_file:
             content = await file.read()
             await out_file.write(content)
-
-        return {"filename": filename}
+        return {"filename": filename, "category": category}
     except Exception as e:
         logger.error(f"Error uploading file: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to upload file")
 
-@app.delete("/api/images/{filename}")
+@app.delete("/api/images/{category}/{filename}")
 async def delete_image(
+    category: str,
     filename: str,
     credentials: HTTPBasicCredentials = Depends(verify_admin_auth)
 ):
-    """Delete an image from the CDN"""
+    """Delete an image from the selected folder"""
     try:
-        file_path = os.path.join(settings.IMAGE_DIR, filename)
+        if category == "public":
+            file_path = os.path.join(settings.PUBLIC_IMAGE_DIR, filename)
+        else:
+            file_path = os.path.join(settings.PRIVATE_IMAGE_DIR, filename)
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="Image not found")
-
         os.remove(file_path)
         return {"message": "Image deleted successfully"}
     except Exception as e:
@@ -229,60 +234,32 @@ async def login(request: Request, username: str = Form(...), password: str = For
 @app.get("/cdn/{filename}")
 async def serve_image(
     filename: str,
-    request: Request,
-    token: Optional[str] = None,
-    session_token: Optional[str] = Header(None, alias="x-session-token")
+    request: Request
 ):
-    """Serve an image if the session is valid"""
-    try:
-        # Use either query parameter token or header token
-        actual_token = token or session_token
-        
-        # Verify session
-        if not verify_session(actual_token, request.headers.get("origin")):
-            raise HTTPException(
-                status_code=403,
-                detail="Invalid or expired session"
-            )
-        
-        # Construct file path
-        file_path = os.path.join(settings.IMAGE_DIR, filename)
-        
-        # Check if file exists
-        if not os.path.isfile(file_path):
-            logger.warning(f"File not found: {filename}")
-            raise HTTPException(
-                status_code=404,
-                detail="Image not found"
-            )
-        
-        # Determine content type based on file extension
-        content_type = "image/jpeg"  # default
-        ext = os.path.splitext(filename)[1].lower()
-        if ext == ".png":
-            content_type = "image/png"
-        elif ext == ".svg":
-            content_type = "image/svg+xml"
-        elif ext == ".gif":
-            content_type = "image/gif"
-        elif ext == ".webp":
-            content_type = "image/webp"
-        
-        logger.info(f"Serving file: {filename}")
-        return FileResponse(
-            file_path,
-            media_type=content_type,
-            filename=filename
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error serving image {filename}: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Internal server error"
-        )
+    """Serve a private image if the session is valid"""
+    session_cookie = request.cookies.get(COOKIE_NAME)
+    if session_cookie != COOKIE_VALUE:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    file_path = os.path.join(settings.IMAGE_DIR, "private", filename)
+    if not os.path.isfile(file_path):
+        logger.warning(f"File not found: {filename}")
+        raise HTTPException(status_code=404, detail="Image not found")
+    # Determine content type based on file extension
+    content_type = "image/jpeg"  # default
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".png":
+        content_type = "image/png"
+    elif ext == ".svg":
+        content_type = "image/svg+xml"
+    elif ext == ".gif":
+        content_type = "image/gif"
+    elif ext == ".webp":
+        content_type = "image/webp"
+    return FileResponse(
+        file_path,
+        media_type=content_type,
+        filename=filename
+    )
 
 @app.get("/health")
 async def health_check():
