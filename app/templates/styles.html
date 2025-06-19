@@ -1,0 +1,256 @@
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+        font-family: 'Inter', sans-serif;
+        background: #f4f4f5;
+        color: #18181b;
+        line-height: 1.5;
+        min-height: 100vh;
+    }
+
+    /* Login styles */
+    .login-container {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        width: 100%;
+        max-width: 400px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+    .header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .header i-lucide {
+        width: 48px;
+        height: 48px;
+        color: #3b82f6;
+        margin-bottom: 1rem;
+    }
+    .header h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #18181b;
+    }
+    .header p {
+        color: #71717a;
+        font-size: 0.875rem;
+        margin-top: 0.5rem;
+    }
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+    .form-group label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        color: #18181b;
+    }
+    .input-group {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+    .input-group i-lucide {
+        position: absolute;
+        left: 1rem;
+        color: #71717a;
+    }
+    .form-input {
+        width: 100%;
+        padding: 0.75rem;
+        padding-left: 2.75rem;
+        border: 1px solid #e4e4e7;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+    .form-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .login-btn {
+        width: 100%;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        padding: 0.75rem;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        transition: background 0.2s;
+    }
+    .login-btn:hover {
+        background: #2563eb;
+    }
+
+    /* Dashboard styles */
+    .navbar {
+        background: white;
+        padding: 1rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .navbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        font-size: 1.25rem;
+        color: #18181b;
+        text-decoration: none;
+    }
+    .navbar-brand i-lucide {
+        color: #3b82f6;
+    }
+    .logout-btn {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: background 0.2s;
+    }
+    .logout-btn:hover {
+        background: #dc2626;
+    }
+    .container {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+    }
+    .upload-area {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        border: 2px dashed #e4e4e7;
+        margin-bottom: 2rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .upload-area:hover {
+        border-color: #3b82f6;
+        background: #f0f9ff;
+    }
+    .upload-area i-lucide {
+        width: 48px;
+        height: 48px;
+        color: #3b82f6;
+        margin-bottom: 1rem;
+    }
+    .upload-area h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+    .upload-area p {
+        color: #71717a;
+    }
+    .image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+    .image-card {
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .image-card img {
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+    }
+    .image-card-footer {
+        padding: 1rem;
+    }
+    .image-card-footer h3 {
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .image-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .image-actions button {
+        flex: 1;
+        padding: 0.5rem;
+        border: 1px solid #e4e4e7;
+        border-radius: 4px;
+        background: white;
+        color: #71717a;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        transition: all 0.2s;
+    }
+    .image-actions button:hover {
+        background: #f4f4f5;
+        border-color: #d4d4d8;
+    }
+
+    /* Shared components */
+    .error-message {
+        background: #fef2f2;
+        color: #ef4444;
+        padding: 0.75rem;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        display: none;
+    }
+    .error-message.show {
+        display: flex;
+    }
+    .toast {
+        position: fixed;
+        bottom: 1rem;
+        right: 1rem;
+        background: #18181b;
+        color: white;
+        padding: 1rem;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        opacity: 0;
+        transform: translateY(1rem);
+        transition: all 0.3s;
+    }
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    #file-input {
+        display: none;
+    }
+</style> 
