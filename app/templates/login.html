@@ -19,9 +19,14 @@
             <i-lucide data-icon="alert-circle"></i-lucide>
             <span>Invalid username or password</span>
         </div>
+        {% else %}
+        <div class="error-message" id="error-message">
+            <i-lucide data-icon="alert-circle"></i-lucide>
+            <span></span>
+        </div>
         {% endif %}
 
-        <form id="login-form" method="post" action="/api/auth/login">
+        <form id="login-form">
             <div class="form-group">
                 <label for="username">Username</label>
                 <div class="input-group">
@@ -46,6 +51,7 @@
     </div>
 
     {% include 'scripts.html' %}
+    <script src="{{ url_for('static', path='auth.js') }}"></script>
     <script>
         // Initialize Lucide icons
         lucide.createIcons();

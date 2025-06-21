@@ -15,7 +15,6 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
                 'Authorization': `Basic ${btoa(`${username}:${password}`)}`
             }
         });
@@ -23,9 +22,13 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         if (response.ok) {
             window.location.href = '/dashboard';
         } else {
+            const errorSpan = errorMessage.querySelector('span');
+            errorSpan.textContent = 'Invalid username or password';
             errorMessage.classList.add('show');
         }
     } catch (error) {
+        const errorSpan = errorMessage.querySelector('span');
+        errorSpan.textContent = 'An error occurred. Please try again.';
         errorMessage.classList.add('show');
     }
 }); 
