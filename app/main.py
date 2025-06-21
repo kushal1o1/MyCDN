@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Header, Request, Response, File, UploadFile, Form, Depends, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
@@ -13,6 +13,7 @@ import logging
 import shutil
 import aiofiles
 from fastapi.security.utils import get_authorization_scheme_param
+from fast_captcha import img_captcha
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +52,10 @@ os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 app.mount("/images/public", StaticFiles(directory=settings.PUBLIC_IMAGE_DIR), name="public_images")
 
+# In-memory store for captcha text. 
+# For production, consider using a more persistent store like Redis.
+captcha_store = {}
+
 async def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
     is_correct_username = secrets.compare_digest(
         credentials.username.encode("utf8"), settings.ADMIN_USERNAME.encode("utf8")
@@ -80,8 +85,34 @@ active_sessions = {}
 
 COOKIE_NAME = "session"
 
+@app.get("/api/captcha")
+async def get_captcha(request: Request):
+    img, text = img_captcha()
+    # Use a fixed key for simplicity. In a real app, you might use a session ID
+    # or another unique identifier for the user.
+    captcha_store['challenge'] = text
+    return StreamingResponse(content=img, media_type="image/jpeg")
+
 @app.post("/api/auth/login")
-async def login(credentials: HTTPBasicCredentials = Depends(security)):
+async def login(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security),
+    captcha_text: str = Form(...),
+):
+    # For production, consider using a more persistent store like Redis.
+    correct_captcha = captcha_store.get('challenge')
+
+    if not correct_captcha or not secrets.compare_digest(
+        captcha_text.lower(), correct_captcha.lower()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect CAPTCHA",
+        )
+    
+    # Invalidate the captcha text after use
+    captcha_store['challenge'] = None
+
     is_correct_username = secrets.compare_digest(
         credentials.username.encode("utf8"), settings.ADMIN_USERNAME.encode("utf8")
     )
@@ -97,14 +128,14 @@ async def login(credentials: HTTPBasicCredentials = Depends(security)):
     session_token = secrets.token_urlsafe(32)
     active_sessions[session_token] = {
         "username": credentials.username,
-        "expires": datetime.now() + timedelta(hours=2)
+        "expires": datetime.now() + timedelta(hours=2),
     }
     response = JSONResponse(content={"message": "Login successful"})
     response.set_cookie(
         key=COOKIE_NAME,
         value=session_token,
         httponly=True,
-        max_age=60*60*2,  # 2 hours
+        max_age=60 * 60 * 2,  # 2 hours
         samesite="lax",
     )
     return response

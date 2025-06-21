@@ -43,6 +43,17 @@
                 </div>
             </div>
 
+            <div class="form-group">
+                <label for="captcha">CAPTCHA</label>
+                <div class="input-group captcha-group">
+                    <img id="captcha-image" src="/api/captcha" alt="CAPTCHA">
+                    <button type="button" id="refresh-captcha" class="refresh-btn">
+                        <i-lucide data-icon="refresh-cw"></i-lucide>
+                    </button>
+                    <input type="text" id="captcha" name="captcha" class="form-input" placeholder="Enter CAPTCHA" required>
+                </div>
+            </div>
+
             <button type="submit" class="login-btn">
                 <i-lucide data-icon="log-in"></i-lucide>
                 Sign In
