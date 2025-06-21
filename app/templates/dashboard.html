@@ -16,15 +16,21 @@
     </nav>
 
     <div class="container">
-        <div class="upload-area" onclick="document.getElementById('file-input').click()">
+        <div class="upload-area">
             <input type="file" id="file-input" accept="image/*" multiple onchange="handleFileSelect(event)">
             <div class="category-select">
                 <label><input type="radio" name="category" value="public" checked> Public</label>
                 <label><input type="radio" name="category" value="private"> Private</label>
             </div>
-            <i-lucide data-icon="upload-cloud"></i-lucide>
-            <h2>Upload Images</h2>
-            <p>Click or drag and drop your images here</p>
+            <div class="upload-box" onclick="document.getElementById('file-input').click()">
+                <i-lucide data-icon="upload-cloud"></i-lucide>
+                <h2>Upload Images</h2>
+                <p>Click or drag and drop your images here</p>
+            </div>
+            <div class="form-group" onclick="event.stopPropagation();">
+                <label for="new-filename">Rename (optional, for single file):</label>
+                <input type="text" id="new-filename" name="new-filename" class="form-input" placeholder="Enter new name">
+            </div>
         </div>
 
         <div class="tabs">
@@ -116,10 +122,18 @@
         async function handleFileSelect(event) {
             const files = event.target.files;
             const category = document.querySelector('input[name="category"]:checked').value;
+            const newFilenameInput = document.getElementById('new-filename');
+            const newFilename = newFilenameInput.value.trim();
+
             for (const file of files) {
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('category', category);
+
+                if (files.length === 1 && newFilename) {
+                    formData.append('new_filename', newFilename);
+                }
+
                 try {
                     const response = await fetch('/api/upload', {
                         method: 'POST',
@@ -129,13 +143,15 @@
                         showToast(`Uploaded ${file.name}`);
                         loadImages();
                     } else {
-                        showToast(`Failed to upload ${file.name}`);
+                        const errorData = await response.json();
+                        showToast(errorData.detail || `Failed to upload ${file.name}`);
                     }
                 } catch (error) {
                     showToast(`Failed to upload ${file.name}`);
                 }
             }
-            event.target.value = '';
+            event.target.value = ''; // Clear file input
+            newFilenameInput.value = ''; // Clear rename input
         }
 
         async function copyImageUrl(filename, category) {

@@ -198,6 +198,7 @@ async def list_images(username: str = Depends(get_current_session_user)):
 async def upload_image(
     file: UploadFile = File(...),
     category: str = Form(...),
+    new_filename: str = Form(None),
     username: str = Depends(get_current_session_user)
 ):
     """Upload a new image to the selected folder (public/private)"""
@@ -205,12 +206,27 @@ async def upload_image(
         if not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        filename = secrets.token_hex(8) + os.path.splitext(file.filename)[1]
+        filename: str
+        if new_filename:
+            # Sanitize to prevent path traversal
+            new_filename = os.path.basename(new_filename)
+            # get base name from user input and extension from original file
+            base_name, _ = os.path.splitext(new_filename)
+            _, original_ext = os.path.splitext(file.filename)
+            filename = f"{base_name}{original_ext}"
+        else:
+            filename = secrets.token_hex(8) + os.path.splitext(file.filename)[1]
         
         if category == "public":
             file_path = os.path.join(settings.PUBLIC_IMAGE_DIR, filename)
         else: # private
             file_path = os.path.join(settings.PRIVATE_IMAGE_DIR, filename)
+        
+        if os.path.exists(file_path):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"File with name '{filename}' already exists."
+            )
             
         async with aiofiles.open(file_path, 'wb') as out_file:
             content = await file.read()
