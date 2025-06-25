@@ -1,41 +1,23 @@
-from fastapi import FastAPI, HTTPException, Header, Request, Response, File, UploadFile, Form, Depends, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
 import os
-from typing import Optional, List
-from .config import settings
 import secrets
 from datetime import datetime, timedelta
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, make_response, flash
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from fast_captcha import img_captcha
+from .config import settings
 import logging
 import shutil
 import aiofiles
-from fastapi.security.utils import get_authorization_scheme_param
-from fast_captcha import img_captcha
+from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Personal CDN Service")
-
-# Configure templates
-templates = Jinja2Templates(directory="app/templates")
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", *settings.ALLOWED_ORIGINS],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
-
-# Security
-security = HTTPBasic()
+app = Flask(__name__)
+app.secret_key = settings.API_KEY
+CORS(app, supports_credentials=True, origins=["http://localhost:3000", *settings.ALLOWED_ORIGINS])
 
 # Create images directory if it doesn't exist
 image_dir = os.path.join(os.path.dirname(__file__), "images")
@@ -46,142 +28,74 @@ settings.PRIVATE_IMAGE_DIR = os.path.join(image_dir, "private")
 os.makedirs(settings.PUBLIC_IMAGE_DIR, exist_ok=True)
 os.makedirs(settings.PRIVATE_IMAGE_DIR, exist_ok=True)
 
-# Mount static files
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-os.makedirs(static_dir, exist_ok=True)
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
-app.mount("/images/public", StaticFiles(directory=settings.PUBLIC_IMAGE_DIR), name="public_images")
-
-# In-memory store for captcha text. 
-# For production, consider using a more persistent store like Redis.
+# In-memory store for captcha text
 captcha_store = {}
 
-async def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
-    is_correct_username = secrets.compare_digest(
-        credentials.username.encode("utf8"), settings.ADMIN_USERNAME.encode("utf8")
-    )
-    is_correct_password = secrets.compare_digest(
-        credentials.password.encode("utf8"), settings.ADMIN_PASSWORD.encode("utf8")
-    )
-    if not (is_correct_username and is_correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+# Session timeout (2 hours)
+SESSION_TIMEOUT = 60 * 60 * 2
 
-async def get_current_session_user(request: Request) -> str:
-    session = get_session(request)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
-    return session["username"]
-
-# Store active sessions
-active_sessions = {}
-
-COOKIE_NAME = "session"
-
-@app.get("/api/captcha")
-async def get_captcha(request: Request):
+@app.route("/api/captcha")
+def get_captcha():
     img, text = img_captcha()
-    # Use a fixed key for simplicity. In a real app, you might use a session ID
-    # or another unique identifier for the user.
-    captcha_store['challenge'] = text
-    return StreamingResponse(content=img, media_type="image/jpeg")
-
-@app.post("/api/auth/login")
-async def login(
-    request: Request,
-    credentials: HTTPBasicCredentials = Depends(security),
-    captcha_text: str = Form(...),
-):
-    # For production, consider using a more persistent store like Redis.
-    correct_captcha = captcha_store.get('challenge')
-
-    if not correct_captcha or not secrets.compare_digest(
-        captcha_text.lower(), correct_captcha.lower()
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect CAPTCHA",
-        )
-    
-    # Invalidate the captcha text after use
-    captcha_store['challenge'] = None
-
-    is_correct_username = secrets.compare_digest(
-        credentials.username.encode("utf8"), settings.ADMIN_USERNAME.encode("utf8")
-    )
-    is_correct_password = secrets.compare_digest(
-        credentials.password.encode("utf8"), settings.ADMIN_PASSWORD.encode("utf8")
-    )
-    if not (is_correct_username and is_correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-
-    session_token = secrets.token_urlsafe(32)
-    active_sessions[session_token] = {
-        "username": credentials.username,
-        "expires": datetime.now() + timedelta(hours=2),
-    }
-    response = JSONResponse(content={"message": "Login successful"})
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=session_token,
-        httponly=True,
-        max_age=60 * 60 * 2,  # 2 hours
-        samesite="lax",
-    )
+    session['captcha'] = text
+    response = make_response(img.read())
+    response.headers.set('Content-Type', 'image/jpeg')
     return response
 
-def get_session(request: Request) -> Optional[dict]:
-    session_token = request.cookies.get(COOKIE_NAME)
-    if not session_token or session_token not in active_sessions:
-        return None
-    
-    session = active_sessions[session_token]
-    if datetime.now() > session["expires"]:
-        del active_sessions[session_token]
-        return None
-        
-    return session
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    username = request.form.get('username')
+    password = request.form.get('password')
+    captcha_text = request.form.get('captcha_text')
+    correct_captcha = session.get('captcha')
+    if not correct_captcha or not captcha_text or captcha_text.lower() != correct_captcha.lower():
+        return jsonify({"detail": "Incorrect CAPTCHA"}), 400
+    session['captcha'] = None
+    if username != settings.ADMIN_USERNAME or password != settings.ADMIN_PASSWORD:
+        return jsonify({"detail": "Incorrect username or password"}), 401
+    session['username'] = username
+    session['expires'] = (datetime.now() + timedelta(seconds=SESSION_TIMEOUT)).timestamp()
+    return jsonify({"message": "Login successful"})
 
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    if get_session(request):
-        return RedirectResponse(url="/dashboard")
-    return RedirectResponse(url="/login")
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+    if 'expires' in session:
+        if datetime.now().timestamp() > session['expires']:
+            session.clear()
+            if request.endpoint not in ('login_page', 'login'):
+                return redirect(url_for('login_page'))
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    if get_session(request):
-        return RedirectResponse(url="/dashboard")
-    return templates.TemplateResponse("login.html", {"request": request})
+def is_authenticated():
+    return 'username' in session and session['username'] == settings.ADMIN_USERNAME
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    if not get_session(request):
-        return RedirectResponse(url="/login", status_code=303)
-    return templates.TemplateResponse("dashboard.html", {"request": request})
-
-@app.get("/logout")
+@app.route("/logout")
 def logout():
-    response = RedirectResponse(url="/login", status_code=303)
-    response.delete_cookie(COOKIE_NAME)
-    # Also remove from active sessions
-    # This part needs the token, which is not sent on logout
-    # This is a limitation of this simple session management
-    return response
+    session.clear()
+    return redirect(url_for('login_page'))
 
-@app.get("/api/images")
-async def list_images(username: str = Depends(get_current_session_user)):
-    """List all images in public and private folders"""
+@app.route("/login")
+def login_page():
+    if is_authenticated():
+        return redirect(url_for('dashboard'))
+    return render_template("login.html")
+
+@app.route("/")
+def root():
+    if is_authenticated():
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login_page'))
+
+@app.route("/dashboard")
+def dashboard():
+    if not is_authenticated():
+        return redirect(url_for('login_page'))
+    return render_template("dashboard.html")
+
+@app.route("/api/images")
+def list_images():
+    if not is_authenticated():
+        return jsonify({"detail": "Not authenticated"}), 401
     try:
         public_files = os.listdir(settings.PUBLIC_IMAGE_DIR)
         private_files = os.listdir(settings.PRIVATE_IMAGE_DIR)
@@ -189,95 +103,76 @@ async def list_images(username: str = Depends(get_current_session_user)):
             "public": [f for f in public_files if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))],
             "private": [f for f in private_files if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
         }
-        return image_files
+        return jsonify(image_files)
     except Exception as e:
         logger.error(f"Error listing images: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to list images")
+        return jsonify({"detail": "Failed to list images"}), 500
 
-@app.post("/api/upload")
-async def upload_image(
-    file: UploadFile = File(...),
-    category: str = Form(...),
-    new_filename: str = Form(None),
-    username: str = Depends(get_current_session_user)
-):
-    """Upload a new image to the selected folder (public/private)"""
+@app.route("/api/upload", methods=["POST"])
+def upload_image():
+    if not is_authenticated():
+        return jsonify({"detail": "Not authenticated"}), 401
+    file = request.files.get('file')
+    category = request.form.get('category')
+    new_filename = request.form.get('new_filename')
+    if not file or not file.content_type.startswith('image/'):
+        return jsonify({"detail": "File must be an image"}), 400
     try:
-        if not file.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail="File must be an image")
-        
-        filename: str
         if new_filename:
-            # Sanitize to prevent path traversal
             new_filename = os.path.basename(new_filename)
-            # get base name from user input and extension from original file
             base_name, _ = os.path.splitext(new_filename)
             _, original_ext = os.path.splitext(file.filename)
             filename = f"{base_name}{original_ext}"
         else:
             filename = secrets.token_hex(8) + os.path.splitext(file.filename)[1]
-        
         if category == "public":
             file_path = os.path.join(settings.PUBLIC_IMAGE_DIR, filename)
-        else: # private
+        else:
             file_path = os.path.join(settings.PRIVATE_IMAGE_DIR, filename)
-        
         if os.path.exists(file_path):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"File with name '{filename}' already exists."
-            )
-            
-        async with aiofiles.open(file_path, 'wb') as out_file:
-            content = await file.read()
-            await out_file.write(content)
-            
-        return {"filename": filename, "category": category}
+            return jsonify({"detail": f"File with name '{filename}' already exists."}), 409
+        file.save(file_path)
+        return jsonify({"filename": filename, "category": category})
     except Exception as e:
         logger.error(f"Error uploading file: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to upload file")
+        return jsonify({"detail": "Failed to upload file"}), 500
 
-@app.delete("/api/images/{category}/{filename}")
-async def delete_image(
-    category: str,
-    filename: str,
-    username: str = Depends(get_current_session_user)
-):
-    """Delete an image from the selected folder"""
+@app.route("/api/images/<category>/<filename>", methods=["DELETE"])
+def delete_image(category, filename):
+    if not is_authenticated():
+        return jsonify({"detail": "Not authenticated"}), 401
     try:
         if category == "public":
             file_path = os.path.join(settings.PUBLIC_IMAGE_DIR, filename)
         else:
             file_path = os.path.join(settings.PRIVATE_IMAGE_DIR, filename)
-            
         if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="Image not found")
-            
+            return jsonify({"detail": "Image not found"}), 404
         os.remove(file_path)
-        return {"message": "Image deleted successfully"}
+        return jsonify({"message": "Image deleted successfully"})
     except Exception as e:
         logger.error(f"Error deleting image: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to delete image")
+        return jsonify({"detail": "Failed to delete image"}), 500
 
-@app.get("/cdn/{filename}")
-async def serve_private_image(filename: str, request: Request):
-    """Serve a private image if the session is valid"""
-    session = get_session(request)
-    if not session:
-        raise HTTPException(status_code=403, detail="Forbidden")
-        
+@app.route("/cdn/<filename>")
+def serve_private_image(filename):
+    if not is_authenticated():
+        return jsonify({"detail": "Forbidden"}), 403
     file_path = os.path.join(settings.PRIVATE_IMAGE_DIR, filename)
     if not os.path.isfile(file_path):
         logger.warning(f"File not found: {filename}")
-        raise HTTPException(status_code=404, detail="Image not found")
-        
-    return FileResponse(file_path, filename=filename)
+        return jsonify({"detail": "Image not found"}), 404
+    return send_from_directory(settings.PRIVATE_IMAGE_DIR, filename)
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
+@app.route("/health")
+def health_check():
     return {"status": "healthy"}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True) 
+# Static and public images
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(os.path.join(os.path.dirname(__file__), 'static'), filename)
+
+@app.route('/images/public/<path:filename>')
+def public_images(filename):
+    return send_from_directory(settings.PUBLIC_IMAGE_DIR, filename) 
