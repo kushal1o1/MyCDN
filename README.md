@@ -138,5 +138,4 @@ GET /cdn/<filename>
 
 ---
 
-**This project is now powered by Flask. For FastAPI users, see previous commits.**
 
