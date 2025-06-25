@@ -46,6 +46,7 @@ def get_captcha():
 def login():
     username = request.form.get('username')
     password = request.form.get('password')
+    print(password,username)
     captcha_text = request.form.get('captcha_text')
     correct_captcha = session.get('captcha')
     if not correct_captcha or not captcha_text or captcha_text.lower() != correct_captcha.lower():

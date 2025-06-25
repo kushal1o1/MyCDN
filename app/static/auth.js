@@ -13,15 +13,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     errorMessage.classList.remove('show');
     
     const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
     formData.append('captcha_text', captchaText);
 
     try {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
-            headers: {
-                'Authorization': `Basic ${btoa(`${username}:${password}`)}`
-            },
-            body: formData
+            body: formData,
+            credentials: 'include'
         });
 
         if (response.ok) {
