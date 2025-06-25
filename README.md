@@ -1,6 +1,6 @@
-# Personal CDN Service
+# Personal CDN Service (Flask Version)
 
-A secure CDN service built with FastAPI that serves static images with authentication and CORS protection.
+A secure CDN service built with Flask that serves static images with authentication and CORS protection.
 
 ## Features
 
@@ -11,13 +11,13 @@ A secure CDN service built with FastAPI that serves static images with authentic
 - CORS protection for specific domains
 - Support for various image formats (JPEG, PNG, SVG, GIF, WebP)
 - Proper error handling (403 for invalid/missing session, 404 for missing images)
-- Environment variable configuration
+- Environment variable configuration via `.env`
 - Session-based authentication for better security
 - Easy integration with React and other frontend frameworks
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.8 or higher (Python 3.10+ recommended for deployment)
 - pip (Python package installer)
 
 ## Setup
@@ -25,7 +25,7 @@ A secure CDN service built with FastAPI that serves static images with authentic
 1. Clone the repository:
 ```bash
 git clone <your-repo-url>
-cd personal-cdn
+cd MyCDN
 ```
 
 2. Create and activate a virtual environment:
@@ -47,7 +47,9 @@ pip install -r requirements.txt
 4. Create a `.env` file in the root directory with your configuration:
 ```env
 API_KEY=your-secret-key-here
-ALLOWED_ORIGINS=["https://my-portfolio.com", "http://localhost:3000"]
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
+ALLOWED_ORIGINS=http://localhost:3000,https://my-portfolio.com
 ```
 
 5. Create the image folders:
@@ -55,10 +57,40 @@ ALLOWED_ORIGINS=["https://my-portfolio.com", "http://localhost:3000"]
 mkdir -p app/images/public app/images/private
 ```
 
-6. Run the server:
+6. Run the server locally:
 ```bash
-uvicorn app.main:app --reload
+# On Linux/Mac
+export FLASK_APP=app.main:app
+export FLASK_ENV=development
+flask run
+
+# On Windows (CMD)
+set FLASK_APP=app.main:app
+set FLASK_ENV=development
+flask run
 ```
+
+## Deployment on PythonAnywhere
+
+1. Upload your project to PythonAnywhere.
+2. Create a virtualenv with Python 3.10+ and install requirements:
+   ```bash
+   mkvirtualenv venv310 --python=/usr/bin/python3.10
+   pip install -r /home/<yourusername>/MyCDN/requirements.txt
+   ```
+3. Set the virtualenv path in the PythonAnywhere Web tab.
+4. Edit your WSGI file to include:
+   ```python
+   import sys
+   path = '/home/<yourusername>/MyCDN'
+   if path not in sys.path:
+       sys.path.append(path)
+   from app.main import app as application
+   ```
+5. Set up static file mappings in the Web tab:
+   - URL: `/static/` → Directory: `/home/<yourusername>/MyCDN/app/static`
+   - URL: `/images/public/` → Directory: `/home/<yourusername>/MyCDN/app/images/public`
+6. Reload your web app from the Web tab.
 
 ## Usage
 
@@ -76,6 +108,7 @@ POST /api/upload
 Form Data:
 - file: (image file)
 - category: public | private
+- new_filename: (optional)
 ```
 
 #### List Images
@@ -102,4 +135,8 @@ GET /images/public/<filename>
 ```
 GET /cdn/<filename>
 ```
+
+---
+
+**This project is now powered by Flask. For FastAPI users, see previous commits.**
 
